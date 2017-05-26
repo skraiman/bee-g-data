@@ -11,8 +11,15 @@ import geocoder
 import sys, getopt
 from urllib2 import quote
 import os.path
+import datetime
 
 
+
+#BEEKEEPING_IO=" https://beta.beekeeping.io"
+BEEKEEPING_IO=" http://app.beekeeping.io"
+#BEEKEEPING_IO=" https://app.beekeeping.io"
+#BEEKEEPING_IO="http://staging.beekeeping.io"
+#BEEKEEPING_IO="http://api.beekeeping.io"
 
 try:
     from urllib.request import Request, urlopen  # Python 3
@@ -27,11 +34,21 @@ def eprint(*args, **kwargs):
 configFile = os.path.expanduser('~/.beestuff')
 #configFile = '/Users/skraimanarris/.beestuff'
 
+def validate_date(date_text):
+   try:
+      datetime.datetime.strptime(date_text, '%Y-%m-%d %H:%M:%S')
+   except ValueError:
+      raise ValueError("Incorrect data format, should be YYYY-MM-DD hh:mm:ss", date_text)
+
 
 def beekeepingIOGet(url, apikey):
+
+    eprint('url = ' + url)
     q = Request(url)
     q.add_header('license_key', apikey)
     data_file = urlopen(q)
+
+    eprint("status code =", data_file.getcode())
 
     return json.load(data_file)
 
@@ -66,6 +83,42 @@ def getLocation(zipplus, config):
 
     return g
 
+
+def processTempsForPostalCode(postalCode, lat, lon, start, stop, apikey):
+
+    pcLocation = { 'lat' : lat, 'lon' : lon}
+
+    recs =[]
+
+    url = BEEKEEPING_IO + '/api_v2/research/temperature?postal_code=' + quote(postalCode) + \
+        '&start=' + str(start) + '&stop=' + str(stop)
+
+    temps = beekeepingIOGet(url, apikey)
+
+    if temps.has_key('payload'):
+        for i in temps['payload']:
+            temp = i['value']
+            timestamp = i['created']
+
+            try:
+                validate_date(timestamp)
+            except ValueError:
+                continue
+
+
+
+            recs.append({'timestamp': timestamp, 'postalCodeLocation': pcLocation,
+                'temp': float(temp), "postalCode" : postalCode})
+    #        print i
+
+    #eprint(recs)
+    return recs
+
+
+
+
+
+
 def processWeightsForPostalCode(postalCode, lat, lon, start, stop, apikey):
 
     pcLocation = { 'lat' : lat, 'lon' : lon}
@@ -74,13 +127,13 @@ def processWeightsForPostalCode(postalCode, lat, lon, start, stop, apikey):
 #    url = 'http://staging.beekeeping.io/api_v2/research/scales?' + 'postal_code=' + quote(postalCode) + \
 #        '&start=' + str(start) + '&stop=' + str(stop)
 
-    url = 'http://staging.beekeeping.io/api_v2/research/scales?postal_code=' + quote(postalCode) + \
+    url = BEEKEEPING_IO + '/api_v2/research/scales?postal_code=' + quote(postalCode) + \
         '&start=' + str(start) + '&stop=' + str(stop)
 
 #    url = 'http://' + 'api.beekeeping.io/api_v2/research/weight?' + 'postal_code=' + quote(postalCode) + \
 #        '&start=' + str(start) + '&stop=' + str(stop)
 
-    eprint('url = ' + url)
+#    eprint('url = ' + url)
 
     weights = beekeepingIOGet(url, apikey)
 
@@ -89,16 +142,25 @@ def processWeightsForPostalCode(postalCode, lat, lon, start, stop, apikey):
         for i in weights['payload']:
             weight = i['value']
             timestamp = i['timestamp']
+
+            try:
+                validate_date(timestamp)
+            except ValueError:
+                continue
+
             apiaryGUID = i['apiary_guid']
             deviceGUID = i['device_guid']
             hiveGUID = i['hive_guid']
 
             if i.has_key('latitude'):
                 apiaryLocation = { 'lat' : i['latitude'], 'lon' : i['longitude']}
-
-            recs.append({'timestamp': timestamp, 'postalCodeLocation': pcLocation, 'apiaryLocation' : apiaryLocation,
-                'weight': float(weight), "postalCode" : postalCode,'apiaryGUID': apiaryGUID, 'deviceGUID': deviceGUID,
-                'hiveGUID': hiveGUID})
+                recs.append({'timestamp': timestamp, 'postalCodeLocation': pcLocation, 'apiaryLocation' : apiaryLocation,
+                    'weight': float(weight), "postalCode" : postalCode,'apiaryGUID': apiaryGUID, 'deviceGUID': deviceGUID,
+                    'hiveGUID': hiveGUID})
+            else:
+                recs.append({'timestamp': timestamp, 'postalCodeLocation': pcLocation,
+                    'weight': float(weight), "postalCode" : postalCode,'apiaryGUID': apiaryGUID, 'deviceGUID': deviceGUID,
+                    'hiveGUID': hiveGUID})
     #        print i
 
     #eprint(recs)
@@ -106,28 +168,41 @@ def processWeightsForPostalCode(postalCode, lat, lon, start, stop, apikey):
 
 
 
-def outputJson(weights, outfile):
+def outputJson(weights,temps, outfile):
+    stuff = weights
+    stuff.append(temps)
+
     if outfile == "":
         json.dump(weights, sys.stdout,  j=(',', ': '))
     else:
         with open(outfile, 'w') as data_file:
             json.dump(weights, data_file,  separators=(',', ': '))
 
-def outputElastic(weights, outfile):
+def outputElastic(weights, temps, outfile):
     index = 1
 
     if outfile == "":
         for rec in weights:
-            print('{ "index" : { "_index" : "beez", "_type" : "weight"}')
+            print('{ "index" : { "_index" : "beez", "_type" : "weight"}}')
+    #        print('{ "index" : { "_index" : "beez", "_type" : "weight", "_id " : "', str(index), '" }}')
+            print(json.dumps(rec))
+            index = index + 1
+        for rec in temps:
+            print('{ "index" : { "_index" : "beez", "_type" : "temp"}}')
     #        print('{ "index" : { "_index" : "beez", "_type" : "weight", "_id " : "', str(index), '" }}')
             print(json.dumps(rec))
             index = index + 1
     else:
-        print("outfile is not blank")
         with open(outfile, 'w') as data_file:
             for rec in weights:
-                data_file.write('{ "index" : { "_index" : "beez", "_type" : "weight"}\n')
+                data_file.write('{ "index" : { "_index" : "beez", "_type" : "weight"}}\n')
 #                data_file.write('{ "index" : { "_index" : "beez", "_type" : "weight", "_id" : "' + str(index) + '" }}\n')
+                data_file.write(json.dumps(rec) + '\n')
+                index = index + 1
+
+            for rec in temps:
+                data_file.write('{ "index" : { "_index" : "beez", "_type" : "temp"}}\n')
+        #                data_file.write('{ "index" : { "_index" : "beez", "_type" : "weight", "_id" : "' + str(index) + '" }}\n')
                 data_file.write(json.dumps(rec) + '\n')
                 index = index + 1
 
@@ -138,11 +213,20 @@ def outputElastic(weights, outfile):
 
 def main(progname, argv):
     weights = []
+    temps = []
     outfile = ""
-    forElastic = False
+    elastic = False
+
+    doWeight = False
+    doTemp = False
+
+    config = getConfig()
+
+    start = config['startTime']
+    stop = config['stopTime']
 
     try:
-        opts, args = getopt.getopt(argv,"ha:o:",["help","apikey=", "elastic", "outfile="])
+        opts, args = getopt.getopt(argv,"ha:o:",["help","apikey=", "elastic", "outfile=", "starttime=", "weight", "temp"])
     except getopt.GetoptError as err:
         eprint(str(err))
         usage(progname)
@@ -156,21 +240,37 @@ def main(progname, argv):
             apikey=arg
         elif opt in ("-o", "--outfile"):
             outfile = arg
-        elif opt in ("-o", "--elastic"):
+        elif opt in ("-e", "--elastic"):
             elastic = True
+        elif opt in ("--weight"):
+            doWeight = True
+        elif opt in ("-e", "--temp"):
+            doTemp = True
+        elif opt in ("--starttime"):
+            start = int(arg)
+        else:
+            usage(progname)
+            sys.exit()
+
+
+
+
+    if len(argv) == 0:
+        usage(progname)
+        sys.exit(2)
 
 
     print('elastic=', elastic)
+    print('start=', start)
 
-    config = getConfig()
 
-    start = config['startTime']
-    stop = config['stopTime']
 #    with open('/Users/skraimanarris/Documents/beekeeeping/zipcodes.json') as data_file:
 #        data = json.load(data_file)
 
-    url = 'http://api.beekeeping.io/api_v2/research/postal_codes'
+    url = BEEKEEPING_IO + '/api_v2/research/postal_codes'
     zips = beekeepingIOGet(url, apikey)
+
+    print(zips)
 
     for i in zips['payload']:
         postalCode = i['postal_code']
@@ -189,7 +289,10 @@ def main(progname, argv):
                 i['lng'] = lng
 
                 try:
-                    weights.extend(processWeightsForPostalCode(postalCode, lat, lng, start, stop, apikey))
+                    if doWeight:
+                        weights.extend(processWeightsForPostalCode(postalCode, lat, lng, start, stop, apikey))
+                    if doTemp:
+                        temps.extend(processTempsForPostalCode(postalCode, lat, lng, start, stop, apikey))
                 except ValueError as err:
                     eprint(str(err))
                 #eprint("\n\n===============", weights, "\n\n\==================")
@@ -197,16 +300,16 @@ def main(progname, argv):
                 eprint("postal code not found:" + postalCode)
 
     if elastic:
-        outputElastic(weights, outfile)
+        outputElastic(weights,temps,  outfile)
     else:
-        outputJson(weights,outfile)
+        outputJson(weights, temps, outfile)
 
     putConfig(config)
     exit(0)
 
 
-def usage():
-    eprint(progname + ' -t <token> [--outfile=oufile] [--elastic]!!!')
+def usage(progname):
+    eprint(progname + ' --apikey=<token> [--outfile=oufile] [--starttime=<unixtimestamp>] [--elastic] [--weight] [--temp]\n\n')
 
 
 
