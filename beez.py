@@ -48,7 +48,7 @@ def beekeepingIOGet(url, apikey):
     q.add_header('license_key', apikey)
     data_file = urlopen(q)
 
-    eprint("status code =", data_file.getcode())
+    eprint("status code =", data_file.getcode(), " headers=", data_file.headers)
 
     return json.load(data_file)
 
@@ -276,28 +276,26 @@ def main(progname, argv):
         postalCode = i['postal_code']
         zipplus =  postalCode + ', ' + i['country_code']
 #    print zipplus
-#        if postalCode == '18901':
-        if True:
-            g = getLocation(zipplus, config)
-            if g['status'] == 'OK':
-                lat = g['lat']
-                lng = g['lng']
-                #
-                # add the latitude and longitude back to the origial record
-                #
-                i['lat'] = lat
-                i['lng'] = lng
+        g = getLocation(zipplus, config)
+        if g['status'] == 'OK':
+            lat = g['lat']
+            lng = g['lng']
+            #
+            # add the latitude and longitude back to the origial record
+            #
+            i['lat'] = lat
+            i['lng'] = lng
 
-                try:
-                    if doWeight:
-                        weights.extend(processWeightsForPostalCode(postalCode, lat, lng, start, stop, apikey))
-                    if doTemp:
-                        temps.extend(processTempsForPostalCode(postalCode, lat, lng, start, stop, apikey))
-                except ValueError as err:
-                    eprint(str(err))
-                #eprint("\n\n===============", weights, "\n\n\==================")
-            else:
-                eprint("postal code not found:" + postalCode)
+            try:
+                if doWeight:
+                    weights.extend(processWeightsForPostalCode(postalCode, lat, lng, start, stop, apikey))
+                if doTemp:
+                    temps.extend(processTempsForPostalCode(postalCode, lat, lng, start, stop, apikey))
+            except ValueError as err:
+                eprint(str(err))
+            #eprint("\n\n===============", weights, "\n\n\==================")
+        else:
+            eprint("postal code not found:" + postalCode)
 
     if elastic:
         outputElastic(weights,temps,  outfile)
