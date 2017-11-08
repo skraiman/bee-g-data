@@ -16,8 +16,8 @@ import datetime
 
 
 #BEEKEEPING_IO=" https://beta.beekeeping.io"
-BEEKEEPING_IO=" http://app.beekeeping.io"
-#BEEKEEPING_IO=" https://app.beekeeping.io"
+#BEEKEEPING_IO=" http://app.beekeeping.io"
+BEEKEEPING_IO=" https://app.beekeeping.io"
 #BEEKEEPING_IO="http://staging.beekeeping.io"
 #BEEKEEPING_IO="http://api.beekeeping.io"
 
@@ -152,12 +152,12 @@ def processWeightsForPostalCode(postalCode, lat, lon, start, stop, apikey):
             deviceGUID = i['device_guid']
             hiveGUID = i['hive_guid']
 
-            if i.has_key('latitude'):
-                apiaryLocation = { 'lat' : i['latitude'], 'lon' : i['longitude']}
+            try:
+                apiaryLocation = { 'lat' : float(i['latitude']), 'lon' : float(i['longitude'])}
                 recs.append({'timestamp': timestamp, 'postalCodeLocation': pcLocation, 'apiaryLocation' : apiaryLocation,
                     'weight': float(weight), "postalCode" : postalCode,'apiaryGUID': apiaryGUID, 'deviceGUID': deviceGUID,
                     'hiveGUID': hiveGUID})
-            else:
+            except TypeError:
                 recs.append({'timestamp': timestamp, 'postalCodeLocation': pcLocation,
                     'weight': float(weight), "postalCode" : postalCode,'apiaryGUID': apiaryGUID, 'deviceGUID': deviceGUID,
                     'hiveGUID': hiveGUID})
